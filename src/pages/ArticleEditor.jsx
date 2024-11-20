@@ -1,73 +1,65 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import { useDropzone } from "react-dropzone";
-import "./ArticleEditor.css";
-import { auth, firestore, storage } from "../firebase/firebaseConfig"; // Add storage import
+import { useNavigate } from "react-router-dom";
+import { auth, db } from "../firebase/firebaseConfig";
 import { addDoc, collection, doc, Timestamp } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; // Import Firebase Storage functions
+import "./ArticleEditor.css";
 
 const ArticleEditor = () => {
   const [title, setTitle] = useState("");
   const [editorValue, setEditorValue] = useState("");
   const [media, setMedia] = useState(null);
-  const [mediaType, setMediaType] = useState(null); // Store file type separately
+  const [mediaType, setMediaType] = useState(null);
+  const [isBlocking, setIsBlocking] = useState(false); // Tracks unsaved changes
 
-  const onEditorChange = (value) => {
-    setEditorValue(value);
-  };
+  const navigate = useNavigate();
+  const user = auth.currentUser;
 
-  // Handle file upload
-  const { getRootProps, getInputProps } = useDropzone({
-    accept: "image/*,video/*",
-    onDrop: (acceptedFiles) => {
-      const file = acceptedFiles[0];
-      if (file) {
-        setMedia(file);
-        setMediaType(file.type.startsWith("image") ? "image" : "video"); // Set media type
-      }
-    },
-  });
-
-  const handleRemoveMedia = () => {
-    setMedia(null);
-    setMediaType(null);
-  };
-
-  const handleSubmit = async () => {
-    const user = auth.currentUser;
-
+  // Save the draft to Firestore
+  const saveDraft = async () => {
     if (user) {
-      // Handle the media upload first
-      let mediaUrl = null;
-
-      if (media) {
-        // Create a reference to Firebase Storage
-        const mediaRef = ref(storage, `articles/${user.uid}/${media.name}`);
-
-        try {
-          // Upload the file to Firebase Storage
-          const uploadResult = await uploadBytes(mediaRef, media);
-          // Get the download URL for the uploaded file
-          mediaUrl = await getDownloadURL(uploadResult.ref);
-          console.log("Media uploaded successfully!");
-        } catch (error) {
-          console.error("Error uploading media: ", error);
-        }
-      }
-
-      // Prepare the article data with the media URL from Firebase Storage
       const articleData = {
         title,
         content: editorValue,
-        mediaUrl, // Use the URL from Firebase Storage
+        mediaUrl: media ? URL.createObjectURL(media) : null, // Use local URL
         mediaType,
         timestamp: Timestamp.now(),
       };
 
       try {
+        // Save to the 'drafts' collection under the user's ID
+        const draftsCollectionRef = collection(db, "users", user.uid, "drafts");
+
+        await addDoc(draftsCollectionRef, articleData);
+
+        console.log("Article successfully saved as draft!");
+        setIsBlocking(false); // After saving, no longer block navigation
+      } catch (error) {
+        console.error("Error saving article to drafts: ", error);
+      }
+    } else {
+      console.log("No user is signed in.");
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (user) {
+      const articleData = {
+        title,
+        content: editorValue,
+        mediaUrl: media ? URL.createObjectURL(media) : null, // Use local URL
+        mediaType,
+        timestamp: Timestamp.now(),
+      };
+
+      try {
+        // Save to the 'articles' collection under the user's ID
         const articlesCollectionRef = collection(
-          doc(firestore, "users", user.uid),
+          db,
+          "users",
+          user.uid,
           "articles"
         );
 
@@ -76,7 +68,8 @@ const ArticleEditor = () => {
         console.log("Article successfully added to Firestore!");
         setTitle("");
         setEditorValue("");
-        handleRemoveMedia();
+        setMedia(null);
+        setIsBlocking(false); // After submission, clear blocking state
       } catch (error) {
         console.error("Error adding article: ", error);
       }
@@ -84,6 +77,60 @@ const ArticleEditor = () => {
       console.log("No user is signed in.");
     }
   };
+
+  const handleChange = (field, value) => {
+    setIsBlocking(true); // Enable blocking when there is unsaved input
+    if (field === "title") setTitle(value);
+    if (field === "content") setEditorValue(value);
+  };
+
+  // Custom hook to block navigation
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (isBlocking) {
+        saveDraft();
+        const message =
+          "You have unsaved changes. Do you want to leave without saving?";
+        event.returnValue = message; // Standard for most browsers
+        return message; // Some browsers require this
+      }
+    };
+
+    const handleNavigation = (event) => {
+      if (isBlocking) {
+        const confirmLeave = window.confirm(
+          "You have unsaved changes. Do you want to leave without saving?"
+        );
+        if (!confirmLeave) {
+          event.preventDefault(); // Prevent the navigation
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("popstate", handleNavigation); // Handle browser navigation (back/forward)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handleNavigation);
+    };
+  }, [isBlocking]);
+
+  // Media dropzone
+  const { getRootProps, getInputProps } = useDropzone({
+    accept: {
+      "image/*": [".png", ".jpg", ".jpeg", ".gif"],
+      "video/*": [".mp4", ".avi", ".mov"],
+    },
+    onDrop: (acceptedFiles) => {
+      const file = acceptedFiles[0];
+      if (file) {
+        setMedia(file);
+        setMediaType(file.type.startsWith("image") ? "image" : "video");
+        setIsBlocking(true);
+      }
+    },
+  });
 
   return (
     <div className="article-editor">
@@ -96,14 +143,18 @@ const ArticleEditor = () => {
           type="text"
           placeholder="Enter article title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => handleChange("title", e.target.value)}
         />
       </div>
 
       {/* Body Section */}
       <div className="input-section">
         <label>Article Content</label>
-        <ReactQuill value={editorValue} onChange={onEditorChange} />
+        <ReactQuill
+          placeholder="Write Your Content!"
+          value={editorValue}
+          onChange={(content) => handleChange("content", content)}
+        />
       </div>
 
       {/* Media Upload Section */}
@@ -117,7 +168,7 @@ const ArticleEditor = () => {
         <div className="media-preview">
           {mediaType === "image" ? (
             <img
-              src={URL.createObjectURL(media)} // Use object URL to preview before upload
+              src={URL.createObjectURL(media)}
               alt="media-preview"
               className="media-preview-img"
             />
@@ -128,14 +179,20 @@ const ArticleEditor = () => {
               className="media-preview-video"
             />
           )}
-          <button className="remove-media-button" onClick={handleRemoveMedia}>
+          <button
+            className="remove-media-button"
+            onClick={() => setMedia(null)}
+          >
             Remove
           </button>
         </div>
       )}
 
-      {/* Submit Button */}
+      {/* Buttons */}
       <div>
+        <button className="save-draft-button" onClick={saveDraft}>
+          Save as Draft
+        </button>
         <button className="submit-button" onClick={handleSubmit}>
           Submit Article
         </button>

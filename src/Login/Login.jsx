@@ -1,6 +1,6 @@
 // Login.js
 import React from "react";
-import { auth, googleProvider, firestore } from "../firebase/firebaseConfig";
+import { auth, googleProvider, db } from "../firebase/firebaseConfig";
 import { signInWithPopup } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
@@ -11,7 +11,7 @@ function Login() {
       const user = result.user;
 
       // Check if the user already exists in Firestore
-      const userRef = doc(firestore, "users", user.uid);
+      const userRef = doc(db, "users", user.uid);
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
