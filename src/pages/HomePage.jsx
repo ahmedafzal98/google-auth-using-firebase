@@ -18,18 +18,19 @@ const HomePage = () => {
   const [articles, setArticles] = useState([]);
 
   useEffect(() => {
+    getAllArticles();
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setUser(user);
-      if (user) {
-        fetchArticles(user.uid); // Fetch articles when user is authenticated
-      }
+      // if (user) {
+      //   fetchArticles(); // Fetch articles when user is authenticated
+      // }
     });
     return () => unsubscribe();
   }, []);
 
-  const fetchArticles = async (userId) => {
+  const fetchArticles = async () => {
     try {
-      const articlesRef = collection(doc(db, "users", userId), "articles");
+      const articlesRef = collection(db, "articles");
       const articlesSnapshot = await getDocs(query(articlesRef));
       const articlesData = articlesSnapshot.docs.map((doc) => ({
         id: doc.id,
@@ -38,6 +39,34 @@ const HomePage = () => {
       setArticles(articlesData);
     } catch (error) {
       console.error("Error fetching articles:", error);
+    }
+  };
+
+  const getAllArticles = async () => {
+    try {
+      // Reference to the "articles" collection
+      const articlesCollectionRef = collection(db, "articles");
+
+      // Create a query to order articles by timestamp (optional)
+      const articlesQuery = query(
+        articlesCollectionRef,
+        orderBy("timestamp", "desc")
+      );
+
+      // Fetch all articles
+      const querySnapshot = await getDocs(articlesQuery);
+
+      // Map through the documents to retrieve the data
+      const articles = querySnapshot.docs.map((doc) => ({
+        id: doc.id, // Get the document ID
+        ...doc.data(), // Get the document fields
+      }));
+
+      console.log("Fetched articles: ", articles);
+      return articles;
+    } catch (error) {
+      console.error("Error fetching articles: ", error);
+      return [];
     }
   };
 

@@ -3,6 +3,7 @@ import React from "react";
 import { auth, googleProvider, db } from "../firebase/firebaseConfig";
 import { signInWithPopup } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import HomePage from "../pages/HomePage";
 
 function Login() {
   const signInWithGoogle = async () => {
@@ -33,6 +34,8 @@ function Login() {
     <div>
       <h2>Login</h2>
       <button onClick={signInWithGoogle}>Sign in with Google</button>
+
+      <HomePage />
     </div>
   );
 }

@@ -3,7 +3,13 @@ import "react-quill/dist/quill.snow.css";
 import "./ArticleEditor.css";
 import { auth, db } from "../firebase/firebaseConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addDoc, collection, doc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  updateDoc,
+} from "firebase/firestore";
 
 const ArticleEditor = () => {
   const [userId, setUserId] = useState();
@@ -48,15 +54,18 @@ const ArticleEditor = () => {
     createDraftColl();
   }, []);
   const saveDraft = async () => {
-    if (!userId || !article.title || !article.content) return; // Prevent saving empty drafts
+    if (!userId || !article.title || !article.content) return;
 
-    // Check if the article has changed before saving
     if (lastArticleRef.current !== JSON.stringify(article)) {
       try {
-        // Save to Firestore drafts collection
+        const drafts = await getAllDrafts(userId);
+
+        const draftId = drafts[0]?.draftId;
+
+        if (!draftId) return;
+
         const draftDocRef = doc(db, "users", userId, "drafts", draftId);
 
-        // Update the document with new data
         await updateDoc(draftDocRef, {
           ...article,
           timestamp: new Date().toISOString(),
@@ -68,6 +77,24 @@ const ArticleEditor = () => {
       } catch (error) {
         console.error("Error saving draft: ", error);
       }
+    }
+  };
+
+  const getAllDrafts = async (userId) => {
+    try {
+      const draftsCollectionRef = collection(db, "users", userId, "drafts");
+      const draftsSnapshot = await getDocs(draftsCollectionRef);
+
+      // Extract document IDs and data
+      const drafts = draftsSnapshot.docs.map((doc) => ({
+        draftId: doc.id, // The Firestore-generated document ID
+        ...doc.data(), // The draft data
+      }));
+
+      console.log("Drafts: ", drafts);
+      return drafts;
+    } catch (error) {
+      console.error("Error fetching drafts: ", error);
     }
   };
 
@@ -94,6 +121,21 @@ const ArticleEditor = () => {
       }
     };
   }, [article, userId]);
+
+  const handleSubmit = async () => {
+    try {
+      const articlesCollectionRef = collection(db, "articles");
+      await addDoc(articlesCollectionRef, {
+        ...article,
+        userId,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log("Article submitted successfully!");
+    } catch (error) {
+      console.error("Error submitting article: ", error);
+    }
+  };
   return (
     <div className="article-editor">
       <h1 className="editor-title">Create a New Article</h1>
@@ -140,7 +182,9 @@ const ArticleEditor = () => {
 
       <div>
         <button className="save-draft-button">Save as Draft</button>
-        <button className="submit-button">Submit Article</button>
+        <button className="submit-button" onClick={handleSubmit}>
+          Submit Article
+        </button>
       </div>
     </div>
   );
